@@ -24,13 +24,13 @@ void fragment() {
     float n3 = sin(dot(sea_uv, vec2(-6.2, 5.1)) - t * 1.25);
     float v = clamp(0.48 + crest * 0.38 + n1 * 0.065 + n2 * 0.025, 0.0, 1.0);
     ALBEDO = mix(deep_color.rgb, shallow_color.rgb, v);
-    float foam = smoothstep(0.77, 0.94, v) * (0.12 + 0.08 * n3);
+    float foam = smoothstep(0.69, 0.90, v) * (0.17 + 0.12 * n3);
     ALBEDO = mix(ALBEDO, foam_color.rgb, foam);
     // Layered analytic surface normals: 3D water detail without texture fetches.
     vec2 slope = vec2(cos(sea_uv.x * 2.3 + t * 1.2) * 0.10 + cos(dot(sea_uv, vec2(4.7, -3.8)) + t * 1.7) * 0.06,
                       cos(sea_uv.y * 2.9 - t * 0.9) * 0.10 + cos(dot(sea_uv, vec2(-6.2, 5.1)) - t * 1.25) * 0.05);
     NORMAL_MAP = normalize(vec3(slope.x, slope.y, 1.0));
     NORMAL_MAP_DEPTH = 0.7;
-    ROUGHNESS = 0.48;
-    SPECULAR = 0.30;
+    ROUGHNESS = mix(0.31, 0.19, clamp(v, 0.0, 1.0));
+    SPECULAR = 0.65;
 }
