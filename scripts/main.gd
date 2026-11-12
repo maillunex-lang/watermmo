@@ -53,8 +53,8 @@ func _build_world() -> void:
 		mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
 		mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
 		for i in range(4):
-			var x := island.x + float(i % 2) * 2.5 - 1.5
-			var z := island.z + float(i / 2) * 2.0 - 1.0
+			var x: float = island.x + float(i % 2) * 2.5 - 1.5
+			var z: float = island.z + float(i / 2) * 2.0 - 1.0
 			mesh_box(self, Vector3(0.35, 2.2, 0.35), Vector3(x, 1.7, z), Color("#805b3e"))
 			mesh_box(self, Vector3(2.0, 2.1, 2.0), Vector3(x, 3.1, z), Color("#2e795a"))
 	ship = Node3D.new()
