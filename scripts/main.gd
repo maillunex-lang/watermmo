@@ -91,12 +91,12 @@ func _build_world() -> void:
 	add_child(env)
 	var sun := DirectionalLight3D.new()
 	sun.position = Vector3(18.0, 75.0, 105.0)
+	add_child(sun)
 	# South is +Z. Rays travel from south toward -Z and down to the ocean.
 	sun.look_at(Vector3.ZERO, Vector3.UP)
 	sun.light_energy = 1.35
 	sun.light_color = Color("#ffe4b0")
 	sun.shadow_enabled = false
-	add_child(sun)
 	var ocean := MeshInstance3D.new()
 	var surface := PlaneMesh.new()
 	surface.size = Vector2(230, 230)
@@ -190,7 +190,7 @@ func _apply_wind_to_sails(root: Node) -> int:
 			var cloth := _shader_material("res://shaders/sail_wind_mobile.gdshader")
 			var is_flag := part_name.begins_with("flag")
 			cloth.set_shader_parameter("sail_height", 0.97 if is_flag else (3.63 if part_name == "sail-b" else 4.73))
-			cloth.set_shader_parameter("wind_strength", 0.65 if is_flag else 0.48)
+			cloth.set_shader_parameter("wind_strength", 0.88 if is_flag else 0.73)
 			if original is BaseMaterial3D:
 				var original_material := original as BaseMaterial3D
 				cloth.set_shader_parameter("cloth_color", original_material.albedo_color)
@@ -216,6 +216,7 @@ func _build_wind_sail() -> void:
 	cloth.position = Vector3(0.0, 3.0, 0.0)
 	cloth.material_override = _shader_material("res://shaders/sail_wind_mobile.gdshader")
 	(cloth.material_override as ShaderMaterial).set_shader_parameter("use_uv_height", true)
+	(cloth.material_override as ShaderMaterial).set_shader_parameter("wind_strength", 0.73)
 	hull_pivot.add_child(cloth)
 
 
