@@ -12,6 +12,17 @@ var target := Vector3.ZERO
 var zoom := 27.0
 var fingers: Dictionary = {}
 var pinch_distance := 0.0
+var stick_vector := Vector2.ZERO
+var left_touch := -1
+var right_touches: Dictionary = {}
+var right_last: Dictionary = {}
+var camera_yaw := 0.0
+var camera_pitch := 0.65
+var joystick: Control
+var joystick_center := Vector2.ZERO
+const STICK_RADIUS := 72.0
+const TOUCH_AREA_FRACTION := 0.42
+
 
 func _ready() -> void:
 	_build_world()
@@ -69,26 +80,39 @@ func _build_world() -> void:
 	for island in [Vector3(-15, 0, -12), Vector3(17, 0, -18), Vector3(-20, 0, 18), Vector3(22, 0, 18)]:
 		mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
 		mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
+		_model("rocks-sand-a", self, island + Vector3(-4.0, 0.45, 1.0), 1.0)
+		_model("tower-complete-small", self, island + Vector3(1.5, 1.05, 0.5), 0.9)
+		_model("structure-platform-dock", self, island + Vector3(4.8, 0.1, 0.0), 1.0)
 		for i in range(4):
 			var x: float = island.x + float(i % 2) * 2.5 - 1.5
 			var z: float = island.z + float(i / 2) * 2.0 - 1.0
-			mesh_box(self, Vector3(0.35, 2.2, 0.35), Vector3(x, 1.7, z), Color("#805b3e"))
-			mesh_box(self, Vector3(2.0, 2.1, 2.0), Vector3(x, 3.1, z), Color("#2e795a"))
+			_model("palm-straight" if i % 2 == 0 else "palm-bend", self, Vector3(x, 1.05, z), 1.0)
 	ship = Node3D.new()
 	add_child(ship)
-	mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
-	mesh_box(ship, Vector3(1.7, 0.5, 2.0), Vector3(0, 1.05, 0.6), Color("#e7d8b3"))
-	mesh_box(ship, Vector3(0.12, 5.0, 0.12), Vector3(0, 3.1, 0), Color("#5c4435"))
-	mesh_box(ship, Vector3(0.08, 3.3, 2.3), Vector3(0, 3.0, 0.0), Color("#f4e7ce"))
+	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
+	if ship_visual == null:
+		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
+
 	camera = Camera3D.new()
 	camera.current = true
 	add_child(camera)
 	_update_camera()
 
+func _model(model_name: String, parent: Node3D, at: Vector3, scale_factor: float) -> Node3D:
+	var path := "res://assets/kenney_pirate/" + model_name + ".glb"
+	var resource := load(path)
+	if resource is PackedScene:
+		var model := (resource as PackedScene).instantiate() as Node3D
+		parent.add_child(model)
+		model.position = at
+		model.scale = Vector3.ONE * scale_factor
+		return model
+	return null
+
 func _update_camera() -> void:
 	if camera == null:
 		return
-	camera.position = ship.position + Vector3(0, zoom, zoom * 0.75)
+	camera.position = ship.position + Vector3(sin(camera_yaw) * zoom * cos(camera_pitch), zoom * sin(camera_pitch), cos(camera_yaw) * zoom * cos(camera_pitch))
 	camera.look_at(ship.position, Vector3.UP)
 
 func _build_ui() -> void:
@@ -132,6 +156,14 @@ func _build_ui() -> void:
 	bar.offset_bottom = -12
 	bar.add_theme_constant_override("separation", 12)
 	world_hud.add_child(bar)
+	joystick = Control.new()
+	joystick.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	joystick.position = Vector2(48, -244)
+	joystick.custom_minimum_size = Vector2(180, 180)
+	joystick.size = Vector2(180, 180)
+	joystick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	world_hud.add_child(joystick)
+	joystick.draw.connect(_draw_stick)
 	for label in ["ПОРТ", "КАРТА", "ФЛОТ", "ЗАДАНИЯ"]:
 		var b := Button.new()
 		b.text = label
@@ -168,46 +200,70 @@ func _start_game() -> void:
 	menu.visible = false
 	world_hud.visible = true
 
+func _draw_stick() -> void:
+	var center := Vector2(90, 90)
+	joystick.draw_circle(center, 76, Color(0.01, 0.11, 0.19, 0.42))
+	joystick.draw_arc(center, 76, 0, TAU, 64, Color(0.36, 0.9, 0.92, 0.75), 3.0, true)
+	joystick.draw_circle(center + stick_vector * STICK_RADIUS, 30, Color(0.23, 0.76, 0.82, 0.85))
+	joystick.draw_arc(center + stick_vector * STICK_RADIUS, 30, 0, TAU, 32, Color.WHITE, 2.0, true)
+
 func _process(delta: float) -> void:
 	if sailing:
-		var movement := target - ship.position
-		if movement.length() > 0.12:
-			ship.position += movement.normalized() * minf(movement.length(), delta * 7.0)
-			ship.rotation.y = lerp_angle(ship.rotation.y, atan2(-movement.x, -movement.z), delta * 3.0)
+		# Manual joystick replaces tap-to-destination; no collision or physics changes.
+		ship.rotation.y += stick_vector.x * delta * 1.7
+		var forward := -ship.global_transform.basis.z
+		ship.position += forward * (-stick_vector.y) * delta * 7.0
 		ship.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.08
 	_update_camera()
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if not sailing:
 		return
 	if event is InputEventScreenTouch:
-		if event.pressed:
-			fingers[event.index] = event.position
-			if fingers.size() == 1:
-				_set_destination(event.position)
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			if touch.position.x < get_viewport().get_visible_rect().size.x * TOUCH_AREA_FRACTION and left_touch == -1:
+				left_touch = touch.index
+				_update_stick(touch.position)
+			else:
+				right_touches[touch.index] = touch.position
+				right_last[touch.index] = touch.position
 		else:
-			fingers.erase(event.index)
+			if touch.index == left_touch:
+				left_touch = -1
+				stick_vector = Vector2.ZERO
+				joystick.queue_redraw()
+			right_touches.erase(touch.index)
+			right_last.erase(touch.index)
 			pinch_distance = 0.0
 	elif event is InputEventScreenDrag:
-		fingers[event.index] = event.position
-		if fingers.size() == 2:
-			var positions := fingers.values()
-			var distance: float = (positions[0] as Vector2).distance_to(positions[1] as Vector2)
-			if pinch_distance > 0:
-				zoom = clampf(zoom * pinch_distance / maxf(distance, 1), 12, 48)
-			pinch_distance = distance
-	elif event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-			_set_destination(event.position)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+		var drag := event as InputEventScreenDrag
+		if drag.index == left_touch:
+			_update_stick(drag.position)
+		elif right_touches.has(drag.index):
+			right_touches[drag.index] = drag.position
+			if right_touches.size() >= 2:
+				var values := right_touches.values()
+				var distance: float = (values[0] as Vector2).distance_to(values[1] as Vector2)
+				if pinch_distance > 0.0:
+					zoom = clampf(zoom * pinch_distance / maxf(distance, 1.0), 12.0, 48.0)
+				pinch_distance = distance
+			else:
+				pinch_distance = 0.0
+				camera_yaw -= drag.relative.x * 0.006
+				camera_pitch = clampf(camera_pitch + drag.relative.y * 0.004, 0.18, 1.35)
+	elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		camera_yaw -= event.relative.x * 0.006
+		camera_pitch = clampf(camera_pitch + event.relative.y * 0.004, 0.18, 1.35)
+	elif event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			zoom = maxf(12, zoom - 2)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			zoom = minf(48, zoom + 2)
 
-func _set_destination(screen_pos: Vector2) -> void:
-	var origin := camera.project_ray_origin(screen_pos)
-	var direction := camera.project_ray_normal(screen_pos)
-	var sea := Plane(Vector3.UP, 0)
-	var hit: Variant = sea.intersects_ray(origin, direction)
-	if hit is Vector3:
-		target = Vector3(clampf(hit.x, -95, 95), 0, clampf(hit.z, -95, 95))
+func _update_stick(position: Vector2) -> void:
+	var rect := get_viewport().get_visible_rect().size
+	# Joystick anchored 48 px from left and 244 px above bottom.
+	var center := Vector2(138, rect.y - 154)
+	stick_vector = ((position - center) / STICK_RADIUS).limit_length(1.0)
+	joystick.queue_redraw()
