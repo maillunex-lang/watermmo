@@ -242,7 +242,7 @@ func _process(delta: float) -> void:
 		# Manual joystick replaces tap-to-destination; no collision or physics changes.
 		ship.rotation.y += stick_vector.x * delta * 1.7
 		var forward := -ship.global_transform.basis.z
-		ship.position += forward * (-stick_vector.y) * delta * 7.0
+		ship.position += forward * stick_vector.y * delta * 7.0
 		ship.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.08
 	_update_wake(delta)
 	_update_camera()
@@ -264,9 +264,9 @@ func _update_wake(delta: float) -> void:
 		return
 	wake_distance = fmod(wake_distance, 0.7)
 	var patch := wake_pieces[wake_cursor]
-	patch.global_position = ship.global_position + ship.global_transform.basis.z * 4.4
+	patch.global_position = ship.global_position - ship.global_transform.basis.z * 4.4
 	patch.position.y = 0.03
-	patch.rotation.y = ship.rotation.y
+	patch.rotation.y = ship.rotation.y + PI
 	patch.visible = true
 	wake_lifetimes[wake_cursor] = 0.0
 	(patch.material_override as ShaderMaterial).set_shader_parameter("age", 0.0)
