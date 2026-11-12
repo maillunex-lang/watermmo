@@ -18,6 +18,11 @@ var right_touches: Dictionary = {}
 var right_last: Dictionary = {}
 var camera_yaw := 0.0
 var camera_pitch := 0.65
+var cannon_muzzle: Marker3D
+var cannon_projectiles: Array[Dictionary] = []
+var cannon_cooldown := 0.0
+const CANNON_SPEED := 28.0
+const CANNON_RANGE := 65.0
 var joystick: Control
 var joystick_center := Vector2.ZERO
 var wake_pieces: Array[MeshInstance3D] = []
@@ -90,6 +95,14 @@ func _build_world() -> void:
 	for island in [Vector3(-15, 0, -12), Vector3(17, 0, -18), Vector3(-20, 0, 18), Vector3(22, 0, 18)]:
 		var shore := mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
 		shore.material_override = _shader_material("res://shaders/shore_mobile.gdshader")
+		var island_body := StaticBody3D.new()
+		island_body.position = island + Vector3(0, -0.35, 0)
+		var island_shape := CollisionShape3D.new()
+		var island_box := BoxShape3D.new()
+		island_box.size = Vector3(11, 1.0, 9)
+		island_shape.shape = island_box
+		island_body.add_child(island_shape)
+		add_child(island_body)
 		var canopy := mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
 		canopy.material_override = _shader_material("res://shaders/vegetation_mobile.gdshader")
 		_model("rocks-sand-a", self, island + Vector3(-4.0, 0.45, 1.0), 1.0)
@@ -104,6 +117,7 @@ func _build_world() -> void:
 	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
 	if ship_visual == null:
 		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
+	_build_cannon()
 	# Pool visual wake patches in world space so foam remains behind the moving ship.
 	var wake_mesh := PlaneMesh.new()
 	wake_mesh.size = Vector2(3.8, 5.5)
@@ -122,6 +136,127 @@ func _build_world() -> void:
 	camera.current = true
 	add_child(camera)
 	_update_camera()
+
+func _build_cannon() -> void:
+	# Port-side cannon, mounted on the ship and pointing to local -X.
+	var carriage := mesh_box(ship, Vector3(1.1, 0.35, 0.9), Vector3(-1.15, 0.62, 0.0), Color("#573c2c"))
+	var barrel := MeshInstance3D.new()
+	var barrel_mesh := CylinderMesh.new()
+	barrel_mesh.top_radius = 0.19
+	barrel_mesh.bottom_radius = 0.27
+	barrel_mesh.height = 1.8
+	barrel.mesh = barrel_mesh
+	barrel.material_override = material(Color("#252d34"))
+	barrel.position = Vector3(-1.85, 0.94, 0)
+	barrel.rotation.z = PI / 2.0
+	ship.add_child(barrel)
+	cannon_muzzle = Marker3D.new()
+	cannon_muzzle.position = Vector3(-2.8, 0.94, 0)
+	ship.add_child(cannon_muzzle)
+
+
+func _cannon_flash(at: Vector3) -> void:
+	# Short-lived glowing flash and expanding smoke puffs.
+	var flash := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.25
+	sphere.height = 0.5
+	flash.mesh = sphere
+	var glow := StandardMaterial3D.new()
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.albedo_color = Color(1.0, 0.62, 0.16)
+	glow.emission_enabled = true
+	glow.emission = Color(1.0, 0.38, 0.04)
+	flash.material_override = glow
+	add_child(flash)
+	flash.global_position = at
+	var flash_tween := create_tween()
+	flash_tween.tween_property(flash, "scale", Vector3.ONE * 0.08, 0.18)
+	flash_tween.tween_callback(flash.queue_free)
+	for i in range(7):
+		var puff := MeshInstance3D.new()
+		var puff_mesh := SphereMesh.new()
+		puff_mesh.radius = 0.11 if i < 4 else 0.06
+		puff_mesh.height = 0.22 if i < 4 else 0.12
+		puff.mesh = puff_mesh
+		var puff_mat := StandardMaterial3D.new()
+		puff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_mat.albedo_color = Color(0.56, 0.59, 0.60, 0.65) if i < 4 else Color(1.0, 0.55, 0.12, 0.95)
+		puff.material_override = puff_mat
+		add_child(puff)
+		puff.global_position = at
+		var direction := Vector3(randf_range(-1.0, 1.0), randf_range(0.2, 1.2), randf_range(-1.0, 1.0)).normalized()
+		var tween := create_tween().set_parallel(true)
+		tween.tween_property(puff, "position", puff.position + direction * (1.1 if i < 4 else 1.8), 0.65 if i < 4 else 0.3)
+		tween.tween_property(puff, "scale", Vector3.ONE * (2.5 if i < 4 else 0.05), 0.65 if i < 4 else 0.3)
+		tween.chain().tween_callback(puff.queue_free)
+
+
+func _fire_cannon() -> void:
+	if not sailing or cannon_cooldown > 0.0 or cannon_muzzle == null:
+		return
+	cannon_cooldown = 0.85
+	var origin := cannon_muzzle.global_position
+	var direction := (-ship.global_transform.basis.x).normalized()
+	var ball := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.20
+	mesh.height = 0.40
+	ball.mesh = mesh
+	ball.material_override = material(Color("#25272b"))
+	add_child(ball)
+	ball.global_position = origin
+	cannon_projectiles.append({"node": ball, "velocity": direction * CANNON_SPEED + Vector3.UP * 3.0, "distance": 0.0})
+	_cannon_flash(origin)
+
+
+func _update_projectiles(delta: float) -> void:
+	cannon_cooldown = maxf(0.0, cannon_cooldown - delta)
+	var space := get_world_3d().direct_space_state
+	for i in range(cannon_projectiles.size() - 1, -1, -1):
+		var shot: Dictionary = cannon_projectiles[i]
+		var ball: MeshInstance3D = shot["node"]
+		var old_pos := ball.global_position
+		var velocity: Vector3 = shot["velocity"]
+		velocity += Vector3.DOWN * 9.8 * delta
+		var new_pos := old_pos + velocity * delta
+		var ray := PhysicsRayQueryParameters3D.create(old_pos, new_pos)
+		var hit := space.intersect_ray(ray)
+		var distance: float = shot["distance"] + old_pos.distance_to(new_pos)
+		if not hit.is_empty() or new_pos.y <= -0.15 or distance >= CANNON_RANGE:
+			if not hit.is_empty():
+				_cannon_explosion(hit["position"])
+			elif new_pos.y <= -0.15:
+				_cannon_explosion(Vector3(new_pos.x, -0.15, new_pos.z))
+			ball.queue_free()
+			cannon_projectiles.remove_at(i)
+		else:
+			ball.global_position = new_pos
+			shot["velocity"] = velocity
+			shot["distance"] = distance
+			cannon_projectiles[i] = shot
+
+
+func _cannon_explosion(at: Vector3) -> void:
+	_cannon_flash(at)
+	var burst := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.45
+	sphere.height = 0.9
+	burst.mesh = sphere
+	var orange := StandardMaterial3D.new()
+	orange.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	orange.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	orange.albedo_color = Color(1.0, 0.35, 0.06, 0.75)
+	burst.material_override = orange
+	add_child(burst)
+	burst.global_position = at
+	var tween := create_tween()
+	tween.tween_property(burst, "scale", Vector3.ONE * 3.0, 0.23)
+	tween.tween_property(burst, "scale", Vector3.ZERO, 0.22)
+	tween.tween_callback(burst.queue_free)
+
 
 func _shader_material(path: String) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
@@ -194,6 +329,13 @@ func _build_ui() -> void:
 	joystick.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	world_hud.add_child(joystick)
 	joystick.draw.connect(_draw_stick)
+	var fire := Button.new()
+	fire.text = "💥 ОГОНЬ"
+	fire.custom_minimum_size = Vector2(150, 75)
+	fire.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	fire.position = Vector2(-195, -245)
+	world_hud.add_child(fire)
+	fire.pressed.connect(_fire_cannon)
 	for label in ["ПОРТ", "КАРТА", "ФЛОТ", "ЗАДАНИЯ"]:
 		var b := Button.new()
 		b.text = label
@@ -245,6 +387,7 @@ func _process(delta: float) -> void:
 		ship.position += forward * stick_vector.y * delta * 7.0
 		ship.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.08
 	_update_wake(delta)
+	_update_projectiles(delta)
 	_update_camera()
 
 func _update_wake(delta: float) -> void:
