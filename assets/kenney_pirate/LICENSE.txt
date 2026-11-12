@@ -1,0 +1,4 @@
+Kenney Pirate Kit (3D models)
+Author: Kenney (https://kenney.nl/assets/pirate-kit)
+License: Creative Commons CC0 1.0 Universal
+Retrieved from: https://github.com/Hidencod/tge-assets
