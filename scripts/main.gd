@@ -90,7 +90,7 @@ func build_world() -> void:
 	var toolbar := HBoxContainer.new()
 	nav_layer.add_child(toolbar)
 	for name in ["ПОРТ", "КАРТА", "ФЛОТ", "ЗАДАНИЯ"]:
-		var n := name
+		var n: String = str(name)
 		toolbar.add_child(make_button(n, func(): dialog(n, "Раздел будет реализован в следующих версиях.")))
 
 func visibility_layer(_control: Control) -> void:
