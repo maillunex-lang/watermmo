@@ -57,7 +57,10 @@ func _build_world() -> void:
 	e.fog_density = 0.008
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color("#c8e0e2")
-	e.ambient_light_energy = 0.8
+	e.ambient_light_energy = 0.72
+	e.glow_enabled = true
+	e.glow_intensity = 0.18
+	e.glow_bloom = 0.02
 	env.environment = e
 	add_child(env)
 	var sun := DirectionalLight3D.new()
@@ -78,8 +81,10 @@ func _build_world() -> void:
 	ocean.position.y = -0.15
 	add_child(ocean)
 	for island in [Vector3(-15, 0, -12), Vector3(17, 0, -18), Vector3(-20, 0, 18), Vector3(22, 0, 18)]:
-		mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
-		mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
+		var shore := mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
+		shore.material_override = _shader_material("res://shaders/shore_mobile.gdshader")
+		var canopy := mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
+		canopy.material_override = _shader_material("res://shaders/vegetation_mobile.gdshader")
 		_model("rocks-sand-a", self, island + Vector3(-4.0, 0.45, 1.0), 1.0)
 		_model("tower-complete-small", self, island + Vector3(1.5, 1.05, 0.5), 0.9)
 		_model("structure-platform-dock", self, island + Vector3(4.8, 0.1, 0.0), 1.0)
@@ -92,11 +97,23 @@ func _build_world() -> void:
 	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
 	if ship_visual == null:
 		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
+	var wake := MeshInstance3D.new()
+	var wake_mesh := PlaneMesh.new()
+	wake_mesh.size = Vector2(2.7, 7.0)
+	wake.mesh = wake_mesh
+	wake.material_override = _shader_material("res://shaders/wake_mobile.gdshader")
+	wake.position = Vector3(0, 0.055, 3.5)
+	ship.add_child(wake)
 
 	camera = Camera3D.new()
 	camera.current = true
 	add_child(camera)
 	_update_camera()
+
+func _shader_material(path: String) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load(path)
+	return mat
 
 func _model(model_name: String, parent: Node3D, at: Vector3, scale_factor: float) -> Node3D:
 	var path := "res://assets/kenney_pirate/" + model_name + ".glb"
