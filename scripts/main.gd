@@ -118,6 +118,7 @@ func _build_world() -> void:
 	if ship_visual == null:
 		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
 	_build_cannon()
+	_build_wind_sail()
 	# Pool visual wake patches in world space so foam remains behind the moving ship.
 	var wake_mesh := PlaneMesh.new()
 	wake_mesh.size = Vector2(3.8, 5.5)
@@ -136,6 +137,20 @@ func _build_world() -> void:
 	camera.current = true
 	add_child(camera)
 	_update_camera()
+
+func _build_wind_sail() -> void:
+	# Subdivided cloth surface attached to the ship. Wind blows toward world -Z.
+	var cloth := MeshInstance3D.new()
+	var mesh := PlaneMesh.new()
+	mesh.size = Vector2(2.6, 3.3)
+	mesh.subdivide_width = 18
+	mesh.subdivide_depth = 16
+	cloth.mesh = mesh
+	cloth.rotation.x = PI / 2.0
+	cloth.position = Vector3(0.0, 3.0, 0.0)
+	cloth.material_override = _shader_material("res://shaders/sail_wind_mobile.gdshader")
+	ship.add_child(cloth)
+
 
 func _build_cannon() -> void:
 	# Port-side cannon, mounted on the ship and pointing to local -X.
