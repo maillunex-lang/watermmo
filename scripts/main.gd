@@ -3,6 +3,16 @@ extends Node3D
 const TEAL := Color("#64e5d7")
 const GOLD := Color("#e8c58c")
 var ship: Node3D
+var hull_pivot: Node3D
+var sea_time := 0.0
+var recoil_roll_angle := 0.0
+var recoil_roll_velocity := 0.0
+var recoil_slide_velocity := Vector3.ZERO
+const SEA_LEVEL := -0.15
+const SEA_WAVE_HEIGHT := 0.39
+const SEA_WAVE_SPEED := 1.08
+const HULL_FLOAT_OFFSET := 0.18
+const SHIP_ROLL_LIMIT := 0.22
 var camera: Camera3D
 var ui: CanvasLayer
 var menu: Control
@@ -61,8 +71,12 @@ func mesh_box(parent: Node3D, dimensions: Vector3, at: Vector3, color: Color) ->
 func _build_world() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color("#83b5c8")
+	e.background_mode = Environment.BG_SKY
+	var south_sky := Sky.new()
+	var sky_material := ShaderMaterial.new()
+	sky_material.shader = load("res://shaders/southern_sun_mobile.gdshader")
+	south_sky.sky_material = sky_material
+	e.sky = south_sky
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.fog_enabled = true
 	e.fog_light_color = Color("#a5d1d3")
@@ -76,16 +90,18 @@ func _build_world() -> void:
 	env.environment = e
 	add_child(env)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -30, 0)
-	sun.light_energy = 1.05
-	sun.light_color = Color("#ffe2ae")
+	sun.position = Vector3(18.0, 75.0, 105.0)
+	# South is +Z. Rays travel from south toward -Z and down to the ocean.
+	sun.look_at(Vector3.ZERO, Vector3.UP)
+	sun.light_energy = 1.35
+	sun.light_color = Color("#ffe4b0")
 	sun.shadow_enabled = false
 	add_child(sun)
 	var ocean := MeshInstance3D.new()
 	var surface := PlaneMesh.new()
 	surface.size = Vector2(230, 230)
-	surface.subdivide_width = 96
-	surface.subdivide_depth = 96
+	surface.subdivide_width = 112
+	surface.subdivide_depth = 112
 	ocean.mesh = surface
 	var water := ShaderMaterial.new()
 	water.shader = load("res://shaders/ocean_mobile.gdshader")
@@ -104,6 +120,8 @@ func _build_world() -> void:
 	ripple_texture.generate_mipmaps = true
 	ripple_texture.noise = ocean_noise
 	water.set_shader_parameter("ripple_normal", ripple_texture)
+	water.set_shader_parameter("wave_height", SEA_WAVE_HEIGHT)
+	water.set_shader_parameter("wave_speed", SEA_WAVE_SPEED)
 	ocean.material_override = water
 	ocean.position.y = -0.15
 	add_child(ocean)
@@ -129,9 +147,12 @@ func _build_world() -> void:
 			_model("palm-straight" if i % 2 == 0 else "palm-bend", self, Vector3(x, 1.05, z), 1.0)
 	ship = Node3D.new()
 	add_child(ship)
-	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
+	hull_pivot = Node3D.new()
+	hull_pivot.name = "HullTiltAndRecoil"
+	ship.add_child(hull_pivot)
+	var ship_visual := _model("ship-medium", hull_pivot, Vector3.ZERO, 1.0)
 	if ship_visual == null:
-		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
+		mesh_box(hull_pivot, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
 		_build_wind_sail()
 	elif _apply_wind_to_sails(ship_visual) == 0:
 		_build_wind_sail()
@@ -195,12 +216,12 @@ func _build_wind_sail() -> void:
 	cloth.position = Vector3(0.0, 3.0, 0.0)
 	cloth.material_override = _shader_material("res://shaders/sail_wind_mobile.gdshader")
 	(cloth.material_override as ShaderMaterial).set_shader_parameter("use_uv_height", true)
-	ship.add_child(cloth)
+	hull_pivot.add_child(cloth)
 
 
 func _build_cannon() -> void:
 	# Port-side cannon, mounted on the ship and pointing to local -X.
-	var carriage := mesh_box(ship, Vector3(1.1, 0.35, 0.9), Vector3(-1.15, 0.62, 0.0), Color("#573c2c"))
+	var carriage := mesh_box(hull_pivot, Vector3(1.1, 0.35, 0.9), Vector3(-1.15, 0.62, 0.0), Color("#573c2c"))
 	var barrel := MeshInstance3D.new()
 	var barrel_mesh := CylinderMesh.new()
 	barrel_mesh.top_radius = 0.19
@@ -210,10 +231,10 @@ func _build_cannon() -> void:
 	barrel.material_override = material(Color("#252d34"))
 	barrel.position = Vector3(-1.85, 0.94, 0)
 	barrel.rotation.z = PI / 2.0
-	ship.add_child(barrel)
+	hull_pivot.add_child(barrel)
 	cannon_muzzle = Marker3D.new()
 	cannon_muzzle.position = Vector3(-2.8, 0.94, 0)
-	ship.add_child(cannon_muzzle)
+	hull_pivot.add_child(cannon_muzzle)
 
 
 func _cannon_flash(at: Vector3) -> void:
@@ -259,7 +280,14 @@ func _fire_cannon() -> void:
 		return
 	cannon_cooldown = 0.85
 	var origin := cannon_muzzle.global_position
-	var direction := (-ship.global_transform.basis.x).normalized()
+	var direction := (-cannon_muzzle.global_transform.basis.x).normalized()
+	# Cannon impulse: recoil is opposite the fired shot.
+	# The off-center barrel creates roll torque around the vessel's long axis.
+	var local_recoil: Vector3 = ship.global_transform.basis.inverse() * (-direction)
+	var lever: Vector3 = ship.to_local(origin) - Vector3(0.0, 0.15, 0.0)
+	var roll_torque: float = lever.cross(local_recoil).z
+	recoil_roll_velocity = clampf(recoil_roll_velocity + roll_torque * 0.63, -1.2, 1.2)
+	recoil_slide_velocity += -direction * 0.32
 	var ball := MeshInstance3D.new()
 	var mesh := SphereMesh.new()
 	mesh.radius = 0.20
@@ -440,13 +468,49 @@ func _draw_stick() -> void:
 	joystick.draw_circle(center + stick_vector * STICK_RADIUS, 30, Color(0.23, 0.76, 0.82, 0.85))
 	joystick.draw_arc(center + stick_vector * STICK_RADIUS, 30, 0, TAU, 32, Color.WHITE, 2.0, true)
 
+func _sample_sea_height(world_position: Vector3) -> float:
+	# Keep this in sync with the three large-wave components in ocean_mobile.gdshader.
+	# North (-Z) has positive traveling-wave phase, matching the ocean mesh.
+	var time_phase: float = sea_time * SEA_WAVE_SPEED
+	var long_swell: float = sin(world_position.z * 0.42 + time_phase)
+	var crossing: float = sin((world_position.x * 0.18 + world_position.z * 0.96) * 0.75 + time_phase * 1.2)
+	var shorter: float = sin((world_position.x * -0.27 + world_position.z * 0.96) * 1.25 + time_phase * 1.55)
+	return SEA_LEVEL + SEA_WAVE_HEIGHT * (long_swell * 0.52 + crossing * 0.30 + shorter * 0.18)
+
+
+func _update_hull_motion(delta: float) -> void:
+	if hull_pivot == null:
+		return
+	var forward: Vector3 = -ship.global_transform.basis.z
+	var starboard: Vector3 = ship.global_transform.basis.x
+	var bow: float = _sample_sea_height(ship.position + forward * 2.1)
+	var stern: float = _sample_sea_height(ship.position - forward * 2.1)
+	var right: float = _sample_sea_height(ship.position + starboard * 1.15)
+	var left: float = _sample_sea_height(ship.position - starboard * 1.15)
+	var target_y: float = (bow + stern + left + right) * 0.25 + HULL_FLOAT_OFFSET
+	var heave_blend: float = 1.0 - exp(-3.4 * delta)
+	ship.position.y = lerpf(ship.position.y, target_y, heave_blend)
+
+	# Buoyancy approximation from four sampled wave heights.
+	var wave_pitch: float = clampf(atan2(bow - stern, 4.2), -0.17, 0.17)
+	var wave_roll: float = clampf(atan2(right - left, 2.3), -0.16, 0.16)
+	# Damped roll spring for a short sideways heel after cannon discharge.
+	recoil_roll_velocity += (-13.0 * recoil_roll_angle - 5.5 * recoil_roll_velocity) * delta
+	recoil_roll_angle = clampf(recoil_roll_angle + recoil_roll_velocity * delta, -0.19, 0.19)
+	var tilt_blend: float = 1.0 - exp(-5.0 * delta)
+	hull_pivot.rotation.x = lerp_angle(hull_pivot.rotation.x, wave_pitch, tilt_blend)
+	hull_pivot.rotation.z = lerp_angle(hull_pivot.rotation.z, clampf(wave_roll + recoil_roll_angle, -SHIP_ROLL_LIMIT, SHIP_ROLL_LIMIT), tilt_blend)
+
+
 func _process(delta: float) -> void:
+	sea_time += delta
 	if sailing:
-		# Manual joystick replaces tap-to-destination; no collision or physics changes.
 		ship.rotation.y += stick_vector.x * delta * 1.7
 		var forward := -ship.global_transform.basis.z
 		ship.position += forward * stick_vector.y * delta * 7.0
-		ship.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.08
+		ship.position += recoil_slide_velocity * delta
+		recoil_slide_velocity *= exp(-3.3 * delta)
+	_update_hull_motion(delta)
 	_update_wake(delta)
 	_update_projectiles(delta)
 	_update_camera()
