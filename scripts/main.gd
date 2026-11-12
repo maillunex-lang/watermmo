@@ -20,6 +20,13 @@ var camera_yaw := 0.0
 var camera_pitch := 0.65
 var joystick: Control
 var joystick_center := Vector2.ZERO
+var wake_pieces: Array[MeshInstance3D] = []
+var wake_lifetimes: Array[float] = []
+var wake_cursor := 0
+var wake_distance := 0.0
+var wake_previous := Vector3.ZERO
+const WAKE_COUNT := 18
+const WAKE_LIFETIME := 3.0
 const STICK_RADIUS := 72.0
 const TOUCH_AREA_FRACTION := 0.42
 
@@ -97,13 +104,19 @@ func _build_world() -> void:
 	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
 	if ship_visual == null:
 		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
-	var wake := MeshInstance3D.new()
+	# Pool visual wake patches in world space so foam remains behind the moving ship.
 	var wake_mesh := PlaneMesh.new()
-	wake_mesh.size = Vector2(2.7, 7.0)
-	wake.mesh = wake_mesh
-	wake.material_override = _shader_material("res://shaders/wake_mobile.gdshader")
-	wake.position = Vector3(0, 0.055, 3.5)
-	ship.add_child(wake)
+	wake_mesh.size = Vector2(3.8, 5.5)
+	for i in range(WAKE_COUNT):
+		var patch := MeshInstance3D.new()
+		patch.mesh = wake_mesh
+		patch.material_override = _shader_material("res://shaders/wake_mobile.gdshader")
+		patch.visible = false
+		patch.position.y = 0.025
+		add_child(patch)
+		wake_pieces.append(patch)
+		wake_lifetimes.append(WAKE_LIFETIME)
+	wake_previous = ship.position
 
 	camera = Camera3D.new()
 	camera.current = true
@@ -231,7 +244,34 @@ func _process(delta: float) -> void:
 		var forward := -ship.global_transform.basis.z
 		ship.position += forward * (-stick_vector.y) * delta * 7.0
 		ship.position.y = sin(Time.get_ticks_msec() * 0.002) * 0.08
+	_update_wake(delta)
 	_update_camera()
+
+func _update_wake(delta: float) -> void:
+	for i in range(wake_pieces.size()):
+		if wake_lifetimes[i] < WAKE_LIFETIME:
+			wake_lifetimes[i] += delta
+			var age: float = minf(1.0, wake_lifetimes[i] / WAKE_LIFETIME)
+			wake_pieces[i].visible = age < 1.0
+			(wake_pieces[i].material_override as ShaderMaterial).set_shader_parameter("age", age)
+	var moved := Vector2(ship.position.x - wake_previous.x, ship.position.z - wake_previous.z).length()
+	wake_previous = ship.position
+	if not sailing or absf(stick_vector.y) < 0.18:
+		wake_distance = 0.0
+		return
+	wake_distance += moved
+	if wake_distance < 0.7:
+		return
+	wake_distance = fmod(wake_distance, 0.7)
+	var patch := wake_pieces[wake_cursor]
+	patch.global_position = ship.global_position + ship.global_transform.basis.z * 4.4
+	patch.position.y = 0.03
+	patch.rotation.y = ship.rotation.y
+	patch.visible = true
+	wake_lifetimes[wake_cursor] = 0.0
+	(patch.material_override as ShaderMaterial).set_shader_parameter("age", 0.0)
+	(patch.material_override as ShaderMaterial).set_shader_parameter("strength", clampf(absf(stick_vector.y), 0.2, 1.0))
+	wake_cursor = (wake_cursor + 1) % WAKE_COUNT
 
 func _input(event: InputEvent) -> void:
 	if not sailing:
