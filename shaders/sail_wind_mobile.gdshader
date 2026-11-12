@@ -7,7 +7,7 @@ uniform bool use_atlas = false;
 uniform bool use_uv_height = false;
 uniform vec4 cloth_color : source_color = vec4(0.91, 0.86, 0.71, 1.0);
 uniform float sail_height : hint_range(0.5, 6.0) = 4.0;
-uniform float wind_strength : hint_range(0.0, 1.0) = 0.48;
+uniform float wind_strength : hint_range(0.0, 1.0) = 0.73;
 
 void vertex() {
     // Original sails have vertical local Y; the fallback PlaneMesh uses UV.y.
