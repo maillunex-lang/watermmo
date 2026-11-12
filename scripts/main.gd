@@ -21,7 +21,8 @@ func _ready() -> void:
 func material(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
-	m.roughness = 0.86
+	m.roughness = 0.82
+	m.metallic = 0.0
 	return m
 
 func mesh_box(parent: Node3D, dimensions: Vector3, at: Vector3, color: Color) -> MeshInstance3D:
@@ -38,7 +39,11 @@ func _build_world() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color("#8cb8c6")
+	e.background_color = Color("#83b5c8")
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.fog_enabled = true
+	e.fog_light_color = Color("#a5d1d3")
+	e.fog_density = 0.008
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color("#c8e0e2")
 	e.ambient_light_energy = 0.8
@@ -46,9 +51,21 @@ func _build_world() -> void:
 	add_child(env)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -30, 0)
-	sun.light_energy = 1.2
+	sun.light_energy = 1.05
+	sun.light_color = Color("#ffe2ae")
+	sun.shadow_enabled = false
 	add_child(sun)
-	mesh_box(self, Vector3(230, 0.15, 230), Vector3(0, -0.18, 0), Color("#12627b"))
+	var ocean := MeshInstance3D.new()
+	var surface := PlaneMesh.new()
+	surface.size = Vector2(230, 230)
+	surface.subdivide_width = 64
+	surface.subdivide_depth = 64
+	ocean.mesh = surface
+	var water := ShaderMaterial.new()
+	water.shader = load("res://shaders/ocean_mobile.gdshader")
+	ocean.material_override = water
+	ocean.position.y = -0.15
+	add_child(ocean)
 	for island in [Vector3(-15, 0, -12), Vector3(17, 0, -18), Vector3(-20, 0, 18), Vector3(22, 0, 18)]:
 		mesh_box(self, Vector3(11, 1.0, 9), island + Vector3(0, -0.35, 0), Color("#dfc68e"))
 		mesh_box(self, Vector3(8, 1.5, 6), island + Vector3(0, 0.3, 0), Color("#5b9778"))
