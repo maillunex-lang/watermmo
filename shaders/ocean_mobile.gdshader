@@ -7,9 +7,10 @@ uniform vec4 shallow_color : source_color = vec4(0.054, 0.40, 0.51, 1.0);
 uniform vec4 foam_color : source_color = vec4(0.77, 0.94, 0.91, 1.0);
 uniform vec4 sky_reflection : source_color = vec4(0.43, 0.69, 0.80, 1.0);
 uniform sampler2D ripple_normal : hint_normal, repeat_enable, filter_linear_mipmap;
-uniform float wave_height : hint_range(0.0, 0.5) = 0.20;
-uniform float wave_speed : hint_range(0.0, 3.0) = 0.8;
-uniform float ripple_strength : hint_range(0.0, 1.0) = 0.52;
+uniform float wave_height : hint_range(0.0, 0.8) = 0.39;
+uniform float wave_speed : hint_range(0.0, 3.0) = 1.08;
+uniform float ripple_strength : hint_range(0.0, 1.0) = 0.72;
+uniform vec3 sun_direction = vec3(0.14, 0.58, 0.80);
 
 varying float crest;
 varying vec2 sea_uv;
@@ -47,5 +48,11 @@ void fragment() {
                      (0.08 + 0.13 * clamp(normal_small.x * 0.5 + 0.5, 0.0, 1.0));
     ALBEDO = mix(water_color, foam_color.rgb, whitecaps);
     ROUGHNESS = mix(0.35, 0.21, depth_mix);
-    SPECULAR = 0.62;
+    SPECULAR = 0.68;
+    // Warm, wind-broken highlights from the south without expensive reflections.
+    vec3 sun_view = normalize((VIEW_MATRIX * vec4(normalize(sun_direction), 0.0)).xyz);
+    vec3 mirror_view = reflect(-sun_view, normalize(NORMAL));
+    float glint = pow(max(dot(mirror_view, normalize(VIEW)), 0.0), 62.0);
+    glint *= 0.28 + 0.72 * clamp(normal_large.z * 0.5 + normal_small.z * 0.5, 0.0, 1.0);
+    EMISSION = vec3(1.0, 0.73, 0.39) * glint * 0.48;
 }
