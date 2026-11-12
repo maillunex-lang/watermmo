@@ -84,11 +84,26 @@ func _build_world() -> void:
 	var ocean := MeshInstance3D.new()
 	var surface := PlaneMesh.new()
 	surface.size = Vector2(230, 230)
-	surface.subdivide_width = 64
-	surface.subdivide_depth = 64
+	surface.subdivide_width = 96
+	surface.subdivide_depth = 96
 	ocean.mesh = surface
 	var water := ShaderMaterial.new()
 	water.shader = load("res://shaders/ocean_mobile.gdshader")
+	# Compact 256px seamless normal map, generated once rather than every frame.
+	var ocean_noise := FastNoiseLite.new()
+	ocean_noise.seed = 2147
+	ocean_noise.frequency = 0.032
+	ocean_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	ocean_noise.fractal_octaves = 3
+	var ripple_texture := NoiseTexture2D.new()
+	ripple_texture.width = 256
+	ripple_texture.height = 256
+	ripple_texture.seamless = true
+	ripple_texture.as_normal_map = true
+	ripple_texture.bump_strength = 3.0
+	ripple_texture.generate_mipmaps = true
+	ripple_texture.noise = ocean_noise
+	water.set_shader_parameter("ripple_normal", ripple_texture)
 	ocean.material_override = water
 	ocean.position.y = -0.15
 	add_child(ocean)
@@ -117,8 +132,10 @@ func _build_world() -> void:
 	var ship_visual := _model("ship-medium", ship, Vector3.ZERO, 1.0)
 	if ship_visual == null:
 		mesh_box(ship, Vector3(2.3, 0.9, 5.4), Vector3(0, 0.45, 0), Color("#654c39"))
+		_build_wind_sail()
+	elif _apply_wind_to_sails(ship_visual) == 0:
+		_build_wind_sail()
 	_build_cannon()
-	_build_wind_sail()
 	# Pool visual wake patches in world space so foam remains behind the moving ship.
 	var wake_mesh := PlaneMesh.new()
 	wake_mesh.size = Vector2(3.8, 5.5)
@@ -138,6 +155,34 @@ func _build_world() -> void:
 	add_child(camera)
 	_update_camera()
 
+func _apply_wind_to_sails(root: Node) -> int:
+	# The original ship-medium.glb includes sail-a, sail-b and three flags.
+	# Animate those instead of drawing a second, overlapping sail.
+	var count := 0
+	var part := root as MeshInstance3D
+	if part != null and part.mesh != null:
+		var part_name := str(part.name).to_lower()
+		if part_name.begins_with("sail") or part_name.begins_with("flag"):
+			var original: Material = part.get_surface_override_material(0)
+			if original == null:
+				original = part.mesh.surface_get_material(0)
+			var cloth := _shader_material("res://shaders/sail_wind_mobile.gdshader")
+			var is_flag := part_name.begins_with("flag")
+			cloth.set_shader_parameter("sail_height", 0.97 if is_flag else (3.63 if part_name == "sail-b" else 4.73))
+			cloth.set_shader_parameter("wind_strength", 0.65 if is_flag else 0.48)
+			if original is BaseMaterial3D:
+				var original_material := original as BaseMaterial3D
+				cloth.set_shader_parameter("cloth_color", original_material.albedo_color)
+				if original_material.albedo_texture != null:
+					cloth.set_shader_parameter("albedo_texture", original_material.albedo_texture)
+					cloth.set_shader_parameter("use_atlas", true)
+			part.material_override = cloth
+			count += 1
+	for child in root.get_children():
+		count += _apply_wind_to_sails(child)
+	return count
+
+
 func _build_wind_sail() -> void:
 	# Subdivided cloth surface attached to the ship. Wind blows toward world -Z.
 	var cloth := MeshInstance3D.new()
@@ -149,6 +194,7 @@ func _build_wind_sail() -> void:
 	cloth.rotation.x = PI / 2.0
 	cloth.position = Vector3(0.0, 3.0, 0.0)
 	cloth.material_override = _shader_material("res://shaders/sail_wind_mobile.gdshader")
+	(cloth.material_override as ShaderMaterial).set_shader_parameter("use_uv_height", true)
 	ship.add_child(cloth)
 
 
