@@ -1,36 +1,38 @@
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
-uniform vec4 deep_color : source_color = vec4(0.025, 0.20, 0.32, 1.0);
-uniform vec4 shallow_color : source_color = vec4(0.065, 0.55, 0.59, 1.0);
-uniform vec4 foam_color : source_color = vec4(0.62, 0.93, 0.87, 1.0);
-uniform float wave_height : hint_range(0.0, 0.5) = 0.16;
-uniform float wave_speed : hint_range(0.0, 3.0) = 0.65;
+uniform vec4 deep_color : source_color = vec4(0.018, 0.15, 0.27, 1.0);
+uniform vec4 shallow_color : source_color = vec4(0.065, 0.43, 0.52, 1.0);
+uniform vec4 foam_color : source_color = vec4(0.77, 0.94, 0.91, 1.0);
+uniform float wave_height : hint_range(0.0, 0.5) = 0.19;
+uniform float wave_speed : hint_range(0.0, 3.0) = 0.8;
+// North is world -Z. Phase p.y + t travels toward decreasing Z.
 varying float crest;
 varying vec2 sea_uv;
 void vertex() {
     vec2 p = VERTEX.xz;
     float t = TIME * wave_speed;
-    float a = sin(p.x * 0.32 + t);
-    float b = sin(p.y * 0.44 - t * 0.73);
-    float c = sin(dot(p, vec2(0.21, 0.18)) + t * 0.53);
-    crest = (a + b + c) / 3.0;
+    float a = sin(p.y * 0.42 + t);
+    float b = sin(dot(p, vec2(0.18, 0.96)) * 0.75 + t * 1.2);
+    float c = sin(dot(p, vec2(-0.27, 0.96)) * 1.25 + t * 1.55);
+    crest = (a * 0.52 + b * 0.30 + c * 0.18);
     VERTEX.y += crest * wave_height;
     sea_uv = p;
 }
 void fragment() {
     float t = TIME;
-    float n1 = sin(sea_uv.x * 2.3 + t * 1.2) * sin(sea_uv.y * 2.9 - t * 0.9);
-    float n2 = sin(dot(sea_uv, vec2(4.7, -3.8)) + t * 1.7);
-    float n3 = sin(dot(sea_uv, vec2(-6.2, 5.1)) - t * 1.25);
-    float v = clamp(0.48 + crest * 0.38 + n1 * 0.065 + n2 * 0.025, 0.0, 1.0);
+    // Wind-aligned fine ripples: phase advances north (-Z).
+    float r1 = sin(sea_uv.y * 9.2 + sea_uv.x * 0.8 + t * 4.8);
+    float r2 = sin(sea_uv.y * 15.7 - sea_uv.x * 1.9 + t * 7.3);
+    float r3 = sin(sea_uv.y * 24.0 + sea_uv.x * 3.1 + t * 9.1);
+    float ripple = r1 * 0.55 + r2 * 0.30 + r3 * 0.15;
+    float v = clamp(0.48 + crest * 0.37 + ripple * 0.045, 0.0, 1.0);
     ALBEDO = mix(deep_color.rgb, shallow_color.rgb, v);
-    float foam = smoothstep(0.69, 0.90, v) * (0.17 + 0.12 * n3);
+    float foam = smoothstep(0.69, 0.86, v) * (0.10 + max(ripple, 0.0) * 0.12);
     ALBEDO = mix(ALBEDO, foam_color.rgb, foam);
-    // Layered analytic surface normals: 3D water detail without texture fetches.
-    vec2 slope = vec2(cos(sea_uv.x * 2.3 + t * 1.2) * 0.10 + cos(dot(sea_uv, vec2(4.7, -3.8)) + t * 1.7) * 0.06,
-                      cos(sea_uv.y * 2.9 - t * 0.9) * 0.10 + cos(dot(sea_uv, vec2(-6.2, 5.1)) - t * 1.25) * 0.05);
+    vec2 slope = vec2(cos(sea_uv.y * 9.2 + sea_uv.x * 0.8 + t * 4.8) * 0.09 + cos(sea_uv.y * 15.7 - sea_uv.x * 1.9 + t * 7.3) * 0.05,
+                      cos(sea_uv.y * 9.2 + sea_uv.x * 0.8 + t * 4.8) * 0.13 + cos(sea_uv.y * 24.0 + sea_uv.x * 3.1 + t * 9.1) * 0.045);
     NORMAL_MAP = normalize(vec3(slope.x, slope.y, 1.0));
-    NORMAL_MAP_DEPTH = 0.7;
-    ROUGHNESS = mix(0.31, 0.19, clamp(v, 0.0, 1.0));
+    NORMAL_MAP_DEPTH = 0.55;
+    ROUGHNESS = mix(0.34, 0.20, v);
     SPECULAR = 0.65;
 }
