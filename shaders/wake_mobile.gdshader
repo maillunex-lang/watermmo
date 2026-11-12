@@ -12,9 +12,10 @@ void fragment() {
     float center = (1.0 - smoothstep(0.02, 0.16 + back * 0.13, arms)) * (1.0 - back * 0.65);
     float chop = sin(UV.y * 66.0 + TIME * 5.0 + sin(UV.x * 29.0) * 2.0);
     float breakup = 0.60 + 0.24 * chop + 0.16 * sin(UV.x * 83.0 - UV.y * 91.0 + TIME * 2.0);
-    float tail = smoothstep(1.0, 0.50, back);
-    float front = smoothstep(0.0, 0.12, back);
-    float alpha = max(left_right * 0.66, center * 0.43) * breakup * tail * front;
+    float tail = 1.0 - smoothstep(0.68, 1.0, back);
+    float front = smoothstep(0.0, 0.16, back);
+    float edge_fade = smoothstep(0.0, 0.12, UV.x) * (1.0 - smoothstep(0.88, 1.0, UV.x));
+    float alpha = max(left_right * 0.66, center * 0.43) * breakup * tail * front * edge_fade;
     alpha *= (1.0 - smoothstep(0.42, 1.0, age)) * strength;
     ALBEDO = mix(vec3(0.31, 0.77, 0.77), foam_color.rgb, clamp(left_right * 0.8 + chop * 0.13, 0.0, 1.0));
     ALPHA = clamp(alpha, 0.0, 0.78);
